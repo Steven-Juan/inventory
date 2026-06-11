@@ -1,0 +1,68 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  pencatatan:
+    build: .
+    image: inventory-steven-laravel:latest
+    environment: &app-env
+      APP_NAME: "Inventory Steven"
+      APP_ENV: local
+      APP_KEY: "base64:pzovj+91bS5Q5l9xGDVuwMbN4SVyzfsSVGSbIeGDY0w="
+      APP_DEBUG: "true"
+      APP_TIMEZONE: Asia/Bangkok
+      APP_URL: http://localhost
+      LOG_CHANNEL: stack
+      DB_CONNECTION: pgsql
+      DATABASE_URL: "postgresql://neondb_owner:npg_Exy89cQktdvn@ep-green-thunder-aqfklcz1-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+      DB_SSLMODE: require
+      CACHE_STORE: database
+      QUEUE_CONNECTION: database
+      SESSION_DRIVER: database
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.pencatatan.rule=PathPrefix(`/pencatatan`) || Path(`/`)
+      - traefik.http.routers.pencatatan.entrypoints=web
+      - traefik.http.services.pencatatan.loadbalancer.server.port=8000
+    depends_on:
+      - traefik
+
+  cetak-laporan:
+    image: inventory-steven-laravel:latest
+    build: .
+    environment: *app-env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.laporan.rule=PathPrefix(`/laporan`)
+      - traefik.http.routers.laporan.entrypoints=web
+      - traefik.http.services.laporan.loadbalancer.server.port=8000
+    depends_on:
+      - pencatatan
+
+  notif-komunikasi:
+    image: inventory-steven-laravel:latest
+    build: .
+    command: >
+      sh -c "php artisan migrate --force
+      && php artisan queue:work --tries=3 --timeout=90 &
+      php artisan serve --host=0.0.0.0 --port=8000"
+    environment: *app-env
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.komunikasi.rule=PathPrefix(`/komunikasi`)
+      - traefik.http.routers.komunikasi.entrypoints=web
+      - traefik.http.services.komunikasi.loadbalancer.server.port=8000
+    depends_on:
+      - pencatatan
+
